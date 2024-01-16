@@ -1,0 +1,248 @@
+#!/bin/bash
+shopt -s extglob
+export LC_COLLATE=C
+
+function main_menu() {
+    
+    # Give the user a menu to create, drop, or connect to a database
+    select i in CreateDB ListDB DropDB ConnectDB Exit
+    do
+        case $i in
+            "CreateDB")
+                while true; do
+                    read -p "Please Enter Database Name: " DBNAME
+                    if [ -e "$DBNAME" ]; then
+                        echo "Database is already exist"
+                    else
+                        case $DBNAME in
+                            [0-9]*) # starts with number
+                                echo "db name can't start with a number"
+                                ;;
+                            " "*)  # Starts with a space
+                                echo "db name can't start with a space"
+                                ;;
+                            *" "*)  # Contains a space
+                                echo "db name can't have spaces"
+                                ;;
+                            +([a-zA-Z0-9]))
+                                mkdir "$DBNAME"
+                                echo ""
+                                echo "$DBNAME database created succefully"
+                                echo ""
+                                main_menu
+                                break
+                                ;;
+                            *) # for regex
+                                echo "db name name can't have regex and start only with letters"
+                                ;;
+                        esac
+                    fi
+                done
+                ;;
+            "ListDB")
+                # List all databases and replace / with nothing
+                echo "Databases List:"
+                echo ""
+                ls -F | grep / | sed 's/\/$//'
+                echo ""
+                main_menu
+                ;;
+            "DropDB")
+                read -p "Please Enter Database Name: " DBNAME
+                if [ -e "$DBNAME" ]; then
+                    rm -r "$DBNAME"
+                    echo ""
+                    echo "$DBNAME database removed"
+                    echo ""
+                    main_menu
+                else
+                    echo "Database does not exist"
+                fi
+                ;;
+            "ConnectDB")
+                read -p "Please Enter Database Name: " DBNAME
+                if [ -e "$DBNAME" ]; then
+                    cd "$DBNAME" || exit
+                    echo ""
+                    echo "Connected to $DBNAME successfully"
+                    echo ""
+
+    #################### Start to show tables options (Create Select Insert Update Delete every option should be a separate script )
+                    connect_menu
+
+                else
+                    echo "Database does not exist"
+                fi
+                ;;
+            "Exit")
+                    echo "exit DBENGINE..."
+                    exit 0
+                 ;;
+            *)
+                echo "Please enter a valid choice"
+                ;;
+        esac
+    done
+}
+
+function connect_menu() {
+    select j in Create_table List_tables Drop_tables Select Insert Update Delete Back
+                    do
+                        case $j in
+                            # create two files for each table
+                            "Create_table")
+                                source ../../create_table                # run script of creating table                
+                                ;;
+                            "List_tables")
+                                echo "Tables List:"
+                                ls -F | grep -v "_metadata$"
+                                ;;	
+                            "Drop_tables")
+                                read -p "Please Enter Table Name: " TBNAME
+                                if [[ $(basename "$TBNAME" | tail -c 10) == "_metadata" ]]; then
+                                    echo "table does not exist"
+                                else
+                                    if [ -e "$TBNAME" ]; then
+                                        rm "$TBNAME";
+                                        rm "$TBNAME"_metadata
+                                        echo "$TBNAME table removed"
+                                    else
+                                        echo "table does not exist"
+                                    fi
+                                fi
+                                ;;
+                            "Select")
+                                source ../../select
+                                ;;	 
+                            "Insert")
+                                source ../../insert
+                                ;; 
+                            "Update")
+                                source ../../update
+                                ;;
+                            "Delete")
+                                source ../../delete
+                                ;;
+                            "Back")
+                                    cd ..
+                                    main_menu
+                                    break
+                                ;;
+                            *)
+                                echo "Please enter a valid choice"
+                                ;;
+                        esac
+                    done
+}
+
+
+while true; do
+        read -p "Please Enter Table Name: " TBNAME
+        if [ -e "$TBNAME" ]; then 
+            table_metadata="$TBNAME"_metadata # variable to pass to awk
+            
+
+            # Displaying available options
+        while true; do
+            echo "1) Delete row based on value in a specific column"
+            echo "2) Delete all data in the table"
+            echo "0) Back"
+            read -p "Choose an option (0-2): " delete_option
+
+            case $delete_option in
+                0)
+                    echo ""
+                    connect_menu
+                    break
+                    ;;
+                1)
+                    # Option to delete row based on value in a specific column
+                    columns=$(awk -F: 'BEGIN {print "columns: "} {printf "%d)%s\t\n", ++column_number, $1} END {print ""}' "$table_metadata")
+                    columns_number=$(awk 'END {print NR}' ./$table_metadata) # git the real number of columns
+
+                    # while true; do
+                        echo -e "Enter column number you want to search in:\n $columns \n 0) Back"
+                        read -r column_num
+
+                        if [[ $column_num -le $columns_number ]]
+                        then
+                            case $column_num in
+                                0)
+                                    echo ""
+                                    connect_menu
+                                    break
+                                    ;;
+                                *)
+                                    if [[ "$column_num" =~ ^[1-9]+$ ]]; then
+                                        # Validating column number
+                                        column_name=$(awk -F: "NR==$column_num {print \$1}" "$table_metadata")
+                                        read -p "Enter the value to delete in column $column_name: " value_to_delete
+
+                                        # Checking if the value exists in the chosen column
+                                        if awk -F: -v column_num="$column_num" -v value_to_delete="$value_to_delete" '$column_num == value_to_delete { found=1; exit } END { exit !found }' "$TBNAME"
+                                        then
+                                            # Deleting rows with the specified value in the chosen column
+                                            awk -F: -v column_num="$column_num" -v value_to_delete="$value_to_delete" '$column_num != value_to_delete' "$TBNAME" > temp_file && mv temp_file "$TBNAME"
+                                            echo "Rows with $column_name = $value_to_delete deleted successfully."
+                                            echo ""
+                                            connect_menu
+                                            echo ""
+                                        else
+                                            echo ""
+                                            echo "Value '$value_to_delete' does not exist in column $column_name. Deletion failed."
+                                            echo ""
+                                            connect_menu
+                                        fi
+                                    else
+                                        echo ""
+                                        echo "Invalid column number. Please enter a valid column number."
+                                        echo ""
+                                    fi
+                                    ;;
+                            esac
+                        else
+                            echo ""
+                            echo "Invalid column number. Please enter a valid column number."
+                            echo ""
+                        fi
+                    # done
+                    ;;
+                2)
+                    # Option to delete all data in the table
+                    read -p "Are you sure you want to delete all data in the table? (y/n): " confirm
+                    case $confirm in
+                        [yY])
+                            > "$TBNAME" # Clearing the contents of the table file
+                            echo ""
+                            echo "All data in the table deleted successfully."
+                            echo ""
+                            connect_menu
+                            break
+                            ;;
+                        [nN])
+                            echo ""
+                            echo "Operation canceled."
+                            echo ""
+                            connect_menu
+                            break
+                            ;;
+                        *)
+                            echo ""
+                            echo "Invalid choice. Operation canceled."
+                            echo ""
+                            connect_menu
+                            break
+                            ;;
+                    esac
+                    ;;
+                *)
+                    echo "Invalid option. Please choose a valid option (0-2)."
+                    ;;
+            esac
+        done
+        break
+
+        else
+            echo "Table does not exist: $TBNAME"
+        fi
+done

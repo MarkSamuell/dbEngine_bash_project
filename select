@@ -1,0 +1,261 @@
+#! /usr/bin/bash
+shopt -s extglob
+export LC_COLLATE=C
+
+function main_menu() {
+    
+    # Give the user a menu to create, drop, or connect to a database
+    select i in CreateDB ListDB DropDB ConnectDB Exit
+    do
+        case $i in
+            "CreateDB")
+                while true; do
+                    read -p "Please Enter Database Name: " DBNAME
+                    if [ -e "$DBNAME" ]; then
+                        echo "Database is already exist"
+                    else
+                        case $DBNAME in
+                            [0-9]*) # starts with number
+                                echo "db name can't start with a number"
+                                ;;
+                            " "*)  # Starts with a space
+                                echo "db name can't start with a space"
+                                ;;
+                            *" "*)  # Contains a space
+                                echo "db name can't have spaces"
+                                ;;
+                            +([a-zA-Z0-9]))
+                                mkdir "$DBNAME"
+                                echo ""
+                                echo "$DBNAME database created succefully"
+                                echo ""
+                                main_menu
+                                break
+                                ;;
+                            *) # for regex
+                                echo "db name name can't have regex and start only with letters"
+                                ;;
+                        esac
+                    fi
+                done
+                ;;
+            "ListDB")
+                # List all databases and replace / with nothing
+                echo "Databases List:"
+                echo ""
+                ls -F | grep / | sed 's/\/$//'
+                echo ""
+                main_menu
+                ;;
+            "DropDB")
+                read -p "Please Enter Database Name: " DBNAME
+                if [ -e "$DBNAME" ]; then
+                    rm -r "$DBNAME"
+                    echo ""
+                    echo "$DBNAME database removed"
+                    echo ""
+                    main_menu
+                else
+                    echo "Database does not exist"
+                fi
+                ;;
+            "ConnectDB")
+                read -p "Please Enter Database Name: " DBNAME
+                if [ -e "$DBNAME" ]; then
+                    cd "$DBNAME" || exit
+                    echo ""
+                    echo "Connected to $DBNAME successfully"
+                    echo ""
+
+    #################### Start to show tables options (Create Select Insert Update Delete every option should be a separate script )
+                    connect_menu
+
+                else
+                    echo "Database does not exist"
+                fi
+                ;;
+            "Exit")
+                    echo "exit DBENGINE..."
+                    exit 0
+                 ;;
+            *)
+                echo "Please enter a valid choice"
+                ;;
+        esac
+    done
+}
+
+function connect_menu() {
+    select j in Create_table List_tables Drop_tables Select Insert Update Delete Back
+                    do
+                        case $j in
+                            # create two files for each table
+                            "Create_table")
+                                source ../../create_table                # run script of creating table                
+                                ;;
+                            "List_tables")
+                                echo "Tables List:"
+                                ls -F | grep -v "_metadata$"
+                                echo ""
+                                connect_menu
+                                ;;	
+                            "Drop_tables")
+                                read -p "Please Enter Table Name: " TBNAME
+                                if [[ $(basename "$TBNAME" | tail -c 10) == "_metadata" ]]; then
+                                    echo "table does not exist"
+                                else
+                                    if [ -e "$TBNAME" ]; then
+                                        rm "$TBNAME";
+                                        rm "$TBNAME"_metadata
+                                        echo ""
+                                        echo "$TBNAME table removed"
+                                        echo ""
+                                        connect_menu
+                                    else
+                                        echo "table does not exist"
+                                    fi
+                                fi
+                                ;;
+                            "Select")
+                                source ../../select
+                                ;;	 
+                            "Insert")
+                                source ../../insert
+                                ;; 
+                            "Update")
+                                source ../../update
+                                ;;
+                            "Delete")
+                                source ../../delete
+                                ;;
+                            "Back")
+                                    cd ..
+                                    main_menu
+                                    break
+                                ;;
+                            *)
+                                echo "Please enter a valid choice"
+                                ;;
+                        esac
+                    done
+}
+
+
+read -p "Enter table name: " TBNAME
+    if [ -e "$TBNAME" ]; then
+        table_metadata="$TBNAME"_metadata
+column_names="The available columns are: "
+columns=$(awk -F: '{printf "%s\t", $1} END {print ""}' "$table_metadata")
+
+# Display column headers
+echo -e "$column_names$columns"
+
+
+    while true; do
+        read -p "Select (A)ll data, (W)here condition, or (S)pecific columns? [A/W/S]: " choice
+
+        case $choice in
+            [Aa])
+                # Display all data
+                awk -F: -v columns="$columns" 'BEGIN {print columns} {for(i=1;i<=NF;i++) printf "%s\t", $i; print ""}' "$TBNAME"
+                echo ""
+                connect_menu
+                break
+                ;;
+
+            [Ww])
+    # Display data based on a condition
+                echo "Select a column for the condition:"
+                awk -F: '{print $1}' "$table_metadata" | cat -n
+                read -p "Enter the number for your choice: " col_choice
+
+                condition_column=$(awk -F: -v choice="$col_choice" 'NR == choice {print $1}' "$table_metadata")
+
+                if [ -n "$condition_column" ]; then
+                    read -p "Enter condition value for $condition_column: " condition_value
+
+                    # Modified AWK command to check condition only for the specified column
+                    awk -F: -v column="$condition_column" -v value="$condition_value" -v col_choice="$col_choice" -v columns="$columns" \
+                'BEGIN {print columns} $(col_choice) == value {for(i=1;i<=NF;i++) printf "%s\t", $i; print ""}' "$TBNAME"
+                echo ""
+                connect_menu
+                break
+                else
+                    echo "Invalid column selection."
+                fi
+                ;;
+
+            [Ss])
+     # Select specific columns
+		awk -F: '{print $1}' "$table_metadata" | cat -n
+                read -p "Enter column numbers (comma-separated): " selected_column_numbers
+                # Display only the selected columns
+             awk -v col_numbers="$selected_column_numbers" -v columns="$columns" '
+BEGIN {
+    OFS="\t";
+    FS=":";
+    split(col_numbers, col_array, /,/);
+    split(columns, colm_array, /\t/);
+
+    # Validate if column numbers are unique
+    for (i = 1; i <= length(col_array); i++) {
+        if (seen[col_array[i]]) {
+            print "Error: Please enter unique column numbers.";
+            exit 1;
+        }
+        seen[col_array[i]] = 1;
+
+        # Validate if column number is within the range of available columns
+        if (col_array[i] < 1 || col_array[i] > length(colm_array)-1) {
+            print "Error: Invalid column number. Please enter a valid column number.";
+            exit 1;
+        }
+    }
+
+    # Validate if the number of inserted values is within the range of columns
+    if (length(col_array) > length(colm_array) - 1) {
+        print "Error: Number of inserted values exceeds the available columns.";
+        exit 1;
+    }
+
+    # Print available columns
+    print "The available columns are:";
+    for (i = 1; i <= length(col_array); i++) {
+        printf "%s%s", colm_array[col_array[i]], i < length(col_array) ? OFS : ORS;
+    }
+}
+{
+    # Process input lines
+    for (i = 1; i <= length(col_array); i++) {
+        printf "%s%s", $col_array[i], i < length(col_array) ? OFS : ORS;
+    }
+}
+' "$TBNAME"
+
+
+
+
+
+
+
+
+                echo ""
+                connect_menu
+                break
+                ;;
+
+
+                        *)
+                            echo "Invalid choice."
+                            ;;
+        esac
+        done
+    else
+        echo ""
+        echo "Table does not exist: $TBNAME"
+        echo ""
+        connect_menu
+    fi
+
+    
+

@@ -1,0 +1,159 @@
+#! /usr/bin/bash
+shopt -s extglob
+export LC_COLLATE=C
+
+# Check if we have a directory for dbengine; if we don't, create one
+    echo ""
+    echo "Welcome `whoami`"
+    echo ""
+
+    if [ -e "DBMS" ]; then
+        cd DBMS || exit
+    else
+        mkdir DBMS && cd DBMS || exit
+    fi
+
+function main_menu() {
+    
+    # Give the user a menu to create, drop, or connect to a database
+    select i in CreateDB ListDB DropDB ConnectDB Exit
+    do
+        case $i in
+            "CreateDB")
+                while true; do
+                    read -p "Please Enter Database Name: " DBNAME
+                    if [ -e "$DBNAME" ]; then
+                        echo "Database is already exist"
+                    else
+                        case $DBNAME in
+                            [0-9]*) # starts with number
+                                echo "db name can't start with a number"
+                                ;;
+                            " "*)  # Starts with a space
+                                echo "db name can't start with a space"
+                                ;;
+                            *" "*)  # Contains a space
+                                echo "db name can't have spaces"
+                                ;;
+                            +([a-zA-Z0-9]))
+                                mkdir "$DBNAME"
+                                echo ""
+                                echo "$DBNAME database created succefully"
+                                echo ""
+                                main_menu
+                                break
+                                ;;
+                            *) # for regex
+                                echo "db name name can't have regex and start only with letters"
+                                ;;
+                        esac
+                    fi
+                done
+                ;;
+            "ListDB")
+                # List all databases and replace / with nothing
+                echo "Databases List:"
+                echo ""
+                ls -F | grep / | sed 's/\/$//'
+                echo ""
+                main_menu
+                ;;
+            "DropDB")
+                read -p "Please Enter Database Name: " DBNAME
+                if [ -e "$DBNAME" ]; then
+                    rm -r "$DBNAME"
+                    echo ""
+                    echo "$DBNAME database removed"
+                    echo ""
+                    main_menu
+                else
+                    echo "Database does not exist"
+                fi
+                ;;
+            "ConnectDB")
+                read -p "Please Enter Database Name: " DBNAME
+                if [ -e "$DBNAME" ]; then
+                    cd "$DBNAME" || exit
+                    echo ""
+                    echo "Connected to $DBNAME successfully"
+                    echo ""
+
+    #################### Start to show tables options (Create Select Insert Update Delete every option should be a separate script )
+                    connect_menu
+
+                else
+                    echo "Database does not exist"
+                fi
+                ;;
+            "Exit")
+                    echo "exit DBENGINE..."
+                    exit 0
+                 ;;
+            *)
+                echo "Please enter a valid choice"
+                ;;
+        esac
+    done
+}
+
+function connect_menu() {
+    select j in Create_table List_tables Drop_tables Select Insert Update Delete Back
+                    do
+                        case $j in
+                            # create two files for each table
+                            "Create_table")
+                                source ../../create_table                # run script of creating table                
+                                ;;
+                            "List_tables")
+                                echo "Tables List:"
+                                ls -F | grep -v "_metadata$"
+                                echo ""
+                                connect_menu
+                                break
+                                ;;	
+                            "Drop_tables")
+                                read -p "Please Enter Table Name: " TBNAME
+                                if [[ $(basename "$TBNAME" | tail -c 10) == "_metadata" ]]; then
+                                    echo "table does not exist"
+                                else
+                                    if [ -e "$TBNAME" ]; then
+                                        rm "$TBNAME";
+                                        rm "$TBNAME"_metadata
+                                        echo ""
+                                        echo "$TBNAME table removed"
+                                        echo ""
+                                        connect_menu
+                                    else
+                                        echo "table does not exist"
+                                    fi
+                                fi
+                                ;;
+                            "Select")
+                                source ../../select
+                                ;;	 
+                            "Insert")
+                                source ../../insert
+                                ;; 
+                            "Update")
+                                source ../../update
+                                ;;
+                            "Delete")
+                                source ../../delete
+                                ;;
+                            "Back")
+                                    cd ..
+                                    main_menu
+                                    break
+                                ;;
+                            *)
+                                echo "Please enter a valid choice"
+                                ;;
+                        esac
+                    done
+}
+
+while true; do 
+    main_menu
+done
+
+

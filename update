@@ -1,0 +1,392 @@
+#! /usr/bin/bash
+shopt -s extglob
+export LC_COLLATE=C
+
+function main_menu() {
+    
+    # Give the user a menu to create, drop, or connect to a database
+    select i in CreateDB ListDB DropDB ConnectDB Exit
+    do
+        case $i in
+            "CreateDB")
+                while true; do
+                    read -p "Please Enter Database Name: " DBNAME
+                    if [ -e "$DBNAME" ]; then
+                        echo "Database is already exist"
+                    else
+                        case $DBNAME in
+                            [0-9]*) # starts with number
+                                echo "db name can't start with a number"
+                                ;;
+                            " "*)  # Starts with a space
+                                echo "db name can't start with a space"
+                                ;;
+                            *" "*)  # Contains a space
+                                echo "db name can't have spaces"
+                                ;;
+                            +([a-zA-Z0-9]))
+                                mkdir "$DBNAME"
+                                echo ""
+                                echo "$DBNAME database created succefully"
+                                echo ""
+                                main_menu
+                                break
+                                ;;
+                            *) # for regex
+                                echo "db name name can't have regex and start only with letters"
+                                ;;
+                        esac
+                    fi
+                done
+                ;;
+            "ListDB")
+                # List all databases and replace / with nothing
+                echo "Databases List:"
+                echo ""
+                ls -F | grep / | sed 's/\/$//'
+                echo ""
+                main_menu
+                ;;
+            "DropDB")
+                read -p "Please Enter Database Name: " DBNAME
+                if [ -e "$DBNAME" ]; then
+                    rm -r "$DBNAME"
+                    echo ""
+                    echo "$DBNAME database removed"
+                    echo ""
+                    main_menu
+                else
+                    echo "Database does not exist"
+                fi
+                ;;
+            "ConnectDB")
+                read -p "Please Enter Database Name: " DBNAME
+                if [ -e "$DBNAME" ]; then
+                    cd "$DBNAME" || exit
+                    echo ""
+                    echo "Connected to $DBNAME successfully"
+                    echo ""
+
+    #################### Start to show tables options (Create Select Insert Update Delete every option should be a separate script )
+                    connect_menu
+
+                else
+                    echo "Database does not exist"
+                fi
+                ;;
+            "Exit")
+                    echo "exit DBENGINE..."
+                    exit 0
+                 ;;
+            *)
+                echo "Please enter a valid choice"
+                ;;
+        esac
+    done
+}
+
+function connect_menu() {
+    select j in Create_table List_tables Drop_tables Select Insert Update Delete Back
+                    do
+                        case $j in
+                            # create two files for each table
+                            "Create_table")
+                                source ../../create_table                # run script of creating table                
+                                ;;
+                            "List_tables")
+                                echo "Tables List:"
+                                ls -F | grep -v "_metadata$"
+                                echo ""
+                                connect_menu
+                                ;;	
+                            "Drop_tables")
+                                read -p "Please Enter Table Name: " TBNAME
+                                if [[ $(basename "$TBNAME" | tail -c 10) == "_metadata" ]]; then
+                                    echo "table does not exist"
+                                else
+                                    if [ -e "$TBNAME" ]; then
+                                        rm "$TBNAME";
+                                        rm "$TBNAME"_metadata
+                                        echo ""
+                                        echo "$TBNAME table removed"
+                                        echo ""
+                                        connect_menu
+                                    else
+                                        echo "table does not exist"
+                                    fi
+                                fi
+                                ;;
+                            "Select")
+                                source ../../select
+                                ;;	 
+                            "Insert")
+                                source ../../insert
+                                ;; 
+                            "Update")
+                                source ../../update
+                                ;;
+                            "Delete")
+                                source ../../delete
+                                ;;
+                            "Back")
+                                    cd ..
+                                    main_menu
+                                    break
+                                ;;
+                            *)
+                                echo "Please enter a valid choice"
+                                ;;
+                        esac
+                    done
+}
+
+read -p "Please Enter Table Name: " TBNAME
+if [ -e "$TBNAME" ]; then 
+    table_metadata="$TBNAME"_metadata # variable to pass to awk
+    #read columns names from meta data
+    columns=$(awk -F: 'BEGIN {print "columns: "} {printf "%d)%s\t\n", ++column_number, $1} END {print ""}' "$table_metadata")
+    columns_number=$(awk 'END {print NR}' ./$table_metadata)
+
+    # Display column headers
+    while true; do
+        echo ""
+        echo -e "Enter column you want to update from $columns \n 0) back"
+        read -r column_num #take number of column to update
+        
+    case $column_num in    
+        [0])
+        echo ""
+        connect_menu
+        break
+        ;;
+        *)
+            if [[ "$column_num" =~ ^[1-9]+$ ]]; then #check if it is a number
+                if (( "$column_num" <= "$columns_number" )); then #check if it is in range of table columns
+                # take the column type
+                column_type=$(awk -F: "NR==$column_num {print \$2}" ./$table_metadata) #read column type
+                # make user specify the update method he want (all values/ with where condition)
+                read -p "Update (A)ll values or (W)here (pk) condition [A/W]: " choice
+                    case $choice in
+                        [Aa])
+                        # update all values
+                        column_name=$(awk -F: "NR==$column_num {print \$1}" ./$table_metadata) #read column name from meta data
+                        column_pk=$(awk -F: "NR==$column_num {print \$3}" ./$table_metadata) #read if column pk or not
+                        read -p "Enter $column_name value you want to change: " value
+                            #check if value exists, if exists take the value to be replaced with 
+                            table_name="$TBNAME"
+                            if awk -v value="$value" -v row_no="$column_num" -F: '$row_no == value { found=1; exit } END { exit !found }' "./$table_name"
+                            then
+                                # take the new value
+                                while true; do
+                                    read -p "Enter the new value of ($value) :" new_value
+                                    # if column is int
+                                    if [ "$column_type" == "int" ]; then
+                                        #check if value entered is int
+                                        if [[ "$new_value" =~ ^-?[0-9]+$ ]]; then
+                                            # check if user enter the same value
+                                            if [[ "$value" == "$new_value" ]]; then
+                                                echo " it's the same value ! "
+                                            else
+                                            # if column is pk check for uniquness 
+                                                if [ "$column_pk" -eq 1 ]; then
+                                                    if awk -v value="$new_value" -v row_no="$column_num" -F: '$row_no == value { found=1; exit } END { exit !found }' "./$table_name"
+                                                    then
+                                                        echo "PK value cannot be repeated"
+                                                    else 
+                                                        # awk replace each value in column with the new value 
+                                                        awk -F: -v column_num="$column_num" -v value="$value" -v new_value="$new_value" '{OFS=FS; $column_num = ($column_num == value) ? new_value : $column_num; print}' ./$table_name > temp_file && mv temp_file ./$table_name
+                                                        echo ""
+                                                        echo "Every ($value) value replaced with ($new_value) successfully" 
+                                                        echo ""
+                                                        connect_menu
+                                                        break
+                                                    fi
+                                            # if column is not pk
+                                                else
+                                                    awk -F: -v column_num="$column_num" -v value="$value" -v new_value="$new_value" '{OFS=FS; $column_num = ($column_num == value) ? new_value : $column_num; print}' ./$table_name > temp_file && mv temp_file ./$table_name
+                                                    echo ""
+                                                    echo "Every ($value) value replaced with ($new_value) successfully" 
+                                                    echo ""
+                                                    connect_menu
+                                                    break
+                                                fi
+                                            fi
+                                        else
+                                            echo "Invalid input. Please enter an integer for $column_name."
+                                        fi
+                                    # if column is string
+                                    elif [ "$column_type" == "string" ]; then
+                                        case $new_value in
+                                            +([a-zA-Z||" "]))
+                                                # check if user enter the same value
+                                                if [[ "$value" == "$new_value" ]]; then
+                                                    echo " it's the same value ! "
+                                                else
+                                                # if column is pk check for uniquness 
+                                                    if [ "$column_pk" -eq 1 ]; then
+                                                        if awk -v value="$new_value" -v row_no="$column_num" -F: '$row_no == value { found=1; exit } END { exit !found }' "./$table_name"
+                                                        then
+                                                            echo "PK value cannot be repeated"
+                                                        else 
+                                                            # awk replace each value in column with the new value 
+                                                            awk -F: -v column_num="$column_num" -v value="$value" -v new_value="$new_value" '{OFS=FS; $column_num = ($column_num == value) ? new_value : $column_num; print}' ./$table_name > temp_file && mv temp_file ./$table_name
+                                                            echo ""
+                                                            echo "Every ($value) value replaced with ($new_value) successfully" 
+                                                            echo ""
+                                                            connect_menu
+                                                            break
+                                                        fi
+                                                # if column is not pk
+                                                    else
+                                                        awk -F: -v column_num="$column_num" -v value="$value" -v new_value="$new_value" '{OFS=FS; $column_num = ($column_num == value) ? new_value : $column_num; print}' ./$table_name > temp_file && mv temp_file ./$table_name
+                                                        echo ""
+                                                        echo "Every ($value) value replaced with ($new_value) successfully" 
+                                                        echo ""
+                                                        connect_menu
+                                                        break
+                                                    fi
+                                                fi
+                                                ;;
+                                            *)
+                                            echo "Invalid input. Please enter a string with only letters and spaces for $column_name."
+                                        esac
+                                    fi
+                                done
+                            else
+                                echo "value do not exist"
+                            fi
+                                
+                        ;;
+                        # update with where pk=
+                        [Ww])
+                        column_name=$(awk -F: "NR==$column_num {print \$1}" ./$table_metadata) #read column name from meta data
+                        column_pk=$(awk -F: "NR==$column_num {print \$3}" ./$table_metadata) #read if column pk or not
+                        read -p "Enter $column_name value you want to change: " value
+                        #check if value exists, if exists take the value to be replaced with 
+                            table_name="$TBNAME"
+                            if awk -v value="$value" -v row_no="$column_num" -F: '$row_no == value { found=1; exit } END { exit !found }' "./$table_name"
+                            then
+                                # take the new value
+                                while true; do
+                                    read -p "Enter the new value of ($value) :" new_value
+                                    if [ "$column_type" == "int" ]; then
+                                        #check if value entered is int
+                                        if [[ "$new_value" =~ ^-?[0-9]+$ ]]; then
+                                            # check if user enter the same value
+                                                if [[ "$value" == "$new_value" ]]; then
+                                                    echo " it's the same value ! "
+                                                else
+                                                # if column is pk check for uniquness
+                                                    if [ "$column_pk" -eq 1 ]; then
+                                                        if awk -v value="$new_value" -v row_no="$column_num" -F: '$row_no == value { found=1; exit } END { exit !found }' "./$table_name"
+                                                        then
+                                                            echo "PK value cannot be repeated"
+                                                        else 
+                                                            # awk replace each value in column with the new value 
+                                                            awk -F: -v column_num="$column_num" -v value="$value" -v new_value="$new_value" '{OFS=FS; $column_num = ($column_num == value) ? new_value : $column_num; print}' ./$table_name > temp_file && mv temp_file ./$table_name
+                                                            echo ""
+                                                            echo "Every ($value) value replaced with ($new_value) successfully" 
+                                                            echo ""
+                                                            connect_menu
+                                                            break
+                                                        fi
+                                                    # if column is not pk
+                                                    else
+                                                        pk_column=$(awk -F: '$NF == 1 {print $1}' ./$table_metadata)  #the name of pk column
+                                                        pk_column_number=$(awk -F: '$NF == 1 {print NR}' ./$table_metadata)
+                                                        read -p "where $pk_column (pk) equal =" pk_value
+                                                        #check if pk_value exists
+                                                        if awk -v value="$pk_value" -v row_no="$pk_column_number" -F: '$row_no == value { found=1; exit } END { exit !found }' "./$table_name"
+                                                        then
+                                                            # awk replace each value in column with the new value where pk = pk_value
+                                                            awk -F: -v column_num="$column_num" -v value="$value" -v new_value="$new_value" -v pk_column_number="$pk_column_number" -v pk_value="$pk_value" '{OFS=FS; if ($pk_column_number == pk_value) $column_num = new_value; print}' ./$table_name > temp_file && mv temp_file ./$table_name
+                                                            echo ""
+                                                            echo "($value) value replaced with ($new_value) where $pk_column = $pk_value successfully"
+                                                            echo ""
+                                                            connect_menu
+                                                            break
+
+                                                        else
+                                                            echo "$pk_column does not exist"
+                                                        fi
+                                                        
+                                                    fi
+
+                                                fi
+                                        else
+                                            echo "Invalid input. Please enter an integer for $column_name."
+                                        fi
+                                    # if column is string
+                                    elif [ "$column_type" == "string" ]; then
+                                        case $new_value in
+                                            +([a-zA-Z||" "]))
+                                                # check if user enter the same value
+                                                    # check if user enter the same value
+                                                if [[ "$value" == "$new_value" ]]; then
+                                                    echo " it's the same value ! "
+                                                else
+                                                # if column is pk check for uniquness
+                                                    if [ "$column_pk" -eq 1 ]; then
+                                                        if awk -v value="$new_value" -v row_no="$column_num" -F: '$row_no == value { found=1; exit } END { exit !found }' "./$table_name"
+                                                        then
+                                                            echo "PK value cannot be repeated"
+                                                        else 
+                                                            # awk replace each value in column with the new value 
+                                                            awk -F: -v column_num="$column_num" -v value="$value" -v new_value="$new_value" '{OFS=FS; $column_num = ($column_num == value) ? new_value : $column_num; print}' ./$table_name > temp_file && mv temp_file ./$table_name
+                                                            echo ""
+                                                            echo "Every ($value) value replaced with ($new_value) successfully" 
+                                                            echo ""
+                                                            connect_menu
+                                                            break
+                                                        fi
+                                                    # if column is not pk
+                                                    else
+                                                        pk_column=$(awk -F: '$NF == 1 {print $1}' ./$table_metadata)  #the name of pk column
+                                                        pk_column_number=$(awk -F: '$NF == 1 {print NR}' ./$table_metadata)
+                                                        read -p "where $pk_column (pk) equal =" pk_value
+                                                        #check if pk_value exists
+                                                        if awk -v value="$pk_value" -v row_no="$pk_column_number" -F: '$row_no == value { found=1; exit } END { exit !found }' "./$table_name"
+                                                        then
+                                                            # awk replace each value in column with the new value where pk = pk_value
+                                                            awk -F: -v column_num="$column_num" -v value="$value" -v new_value="$new_value" -v pk_column_number="$pk_column_number" -v pk_value="$pk_value" '{OFS=FS; if ($pk_column_number == pk_value) $column_num = new_value; print}' ./$table_name > temp_file && mv temp_file ./$table_name
+                                                            echo ""
+                                                            echo "($value) value replaced with ($new_value) where $pk_column = $pk_value successfully"
+                                                            echo ""
+                                                            connect_menu
+                                                            break
+
+                                                        else
+                                                            echo "$pk_column does not exist"
+                                                        fi
+                                                        
+                                                    fi
+
+                                                fi
+                                            ;;
+                                            *)
+                                            echo "Invalid input. Please enter a string with only letters and spaces for $column_name."
+                                        esac
+                                    fi
+                                done
+                            else
+                                echo "value do not exist"
+                            fi 
+                        ;;
+                        *)
+                        echo "please enter a valid choice [A/W]"
+                    esac    
+                else
+                    echo ""
+                    echo "please enter in range column number"
+                fi
+            else
+                echo ""
+                echo "please enter a vaild column number"
+
+            fi
+        esac
+    done
+
+else
+    echo "Table does not exist: $TBNAME"
+fi

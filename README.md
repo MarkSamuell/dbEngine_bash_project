@@ -14,7 +14,7 @@ The **DBENGINE** script is a simple bash script designed to manage databases. It
 - Basic understanding of shell scripting
 
 ## Usage
-###Run Script:
+##Run Script:
 ./dbengine
 
 ## Main Menu Options:

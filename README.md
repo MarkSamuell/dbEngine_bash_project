@@ -1,7 +1,7 @@
 # DBENGINE Bash Script
 stimulation of a database engine with bash script
 - DB engine runs by running "./dbengine" as main script.
-- "dbengine" must have execute permission.
+- "dbengine" file must have execute permission.
 - all scripts should be in the same directory.
 
 ## Overview
